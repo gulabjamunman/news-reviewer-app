@@ -17,84 +17,102 @@ HEADERS = {
 ARTICLES_URL = f"https://api.airtable.com/v0/{BASE_ID}/Articles"
 REVIEWS_URL = f"https://api.airtable.com/v0/{BASE_ID}/Human Reviews"
 
-# ---------- HELPERS ----------
+# ---------- AIRTABLE HELPERS WITH PAGINATION ----------
+
+def fetch_all_records(url, params=None):
+    records = []
+    offset = None
+
+    while True:
+        query = params.copy() if params else {}
+        if offset:
+            query["offset"] = offset
+
+        res = requests.get(url, headers=HEADERS, params=query).json()
+        records.extend(res.get("records", []))
+        offset = res.get("offset")
+
+        if not offset:
+            break
+
+    return records
+
 
 def get_all_articles():
-    res = requests.get(ARTICLES_URL, headers=HEADERS).json()
-    return res.get("records", [])
+    return fetch_all_records(ARTICLES_URL)
+
 
 def get_reviews_by_user(reviewer_id):
     formula = f"{{Reviewer ID}}='{reviewer_id}'"
-    url = f"{REVIEWS_URL}?filterByFormula={formula}"
-    res = requests.get(url, headers=HEADERS).json()
-    return res.get("records", [])
+    return fetch_all_records(REVIEWS_URL, {"filterByFormula": formula})
+
 
 def save_review(data):
     requests.post(REVIEWS_URL, headers=HEADERS, json={"fields": data})
+
 
 # ---------- SESSION STATE ----------
 
 if "reviewer_id" not in st.session_state:
     st.session_state.reviewer_id = ""
 
-if "reviewed_articles" not in st.session_state:
-    st.session_state.reviewed_articles = set()
-
 if "current_article" not in st.session_state:
     st.session_state.current_article = None
+
 
 # ---------- UI ----------
 
 st.set_page_config(layout="wide")
 st.title("🧠 News Article Review")
 
-# Auto-save reviewer ID
 reviewer_input = st.text_input("Reviewer ID", value=st.session_state.reviewer_id)
+
 if reviewer_input:
     st.session_state.reviewer_id = reviewer_input
 else:
     st.stop()
 
-# Load data
+# ---------- LOAD DATA ----------
+
 all_articles = get_all_articles()
 user_reviews = get_reviews_by_user(st.session_state.reviewer_id)
 
-st.session_state.reviewed_articles = {
-    r["fields"]["Article ID"] for r in user_reviews if "Article ID" in r["fields"]
-}
-
-available_articles = [
-    a for a in all_articles
-    if a["fields"].get("Article ID") not in st.session_state.reviewed_articles
-]
+reviewed_ids = {r["fields"].get("Article ID") for r in user_reviews}
+available_articles = [a for a in all_articles if a["fields"].get("Article ID") not in reviewed_ids]
 
 total_articles = len(all_articles)
-reviewed_count = len(st.session_state.reviewed_articles)
+reviewed_count = len(reviewed_ids)
+remaining_count = len(available_articles)
 
-# ---------- SIDEBAR STATS ----------
-st.sidebar.metric("Articles remaining", len(available_articles))
+# ---------- SIDEBAR METRICS ----------
+
+st.sidebar.metric("Total articles in system", total_articles)
 st.sidebar.metric("You have reviewed", reviewed_count)
+st.sidebar.metric("Articles left for you", remaining_count)
 
 progress = reviewed_count / total_articles if total_articles else 0
 st.sidebar.progress(progress, text=f"Progress: {reviewed_count}/{total_articles}")
 
-# ---------- NO MORE ARTICLES ----------
+# ---------- IF DONE ----------
+
 if not available_articles:
-    st.success("You have reviewed all available articles. Thank you!")
+    st.success("🎉 You’ve reviewed all available articles. You are officially a news-sensei. Thank you!")
     st.stop()
 
-# Pick article
+# ---------- LOAD NEW ARTICLE ----------
+
 if st.session_state.current_article is None:
     st.session_state.current_article = random.choice(available_articles)
 
 fields = st.session_state.current_article["fields"]
 
 # ---------- LAYOUT ----------
+
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.header(fields.get("Headline"))
-    st.write(fields.get("Content"))
+    st.header(fields.get("Headline", "No headline"))
+    st.write(fields.get("Content", "No content available"))
 
 with col2:
     st.subheader("Your Review")
@@ -102,10 +120,10 @@ with col2:
     political = st.slider("Political Leaning", 1, 5)
     intensity = st.slider("Language Intensity", 1, 5)
     sensational = st.slider("Sensationalism", 1, 5)
-    threat = st.slider("Threat/Alarm Level", 1, 5)
+    threat = st.slider("Threat / Alarm Level", 1, 5)
     group = st.slider("Us vs Them Tone", 1, 5)
 
-    emotions = st.text_input("Emotions felt")
+    emotions = st.text_input("Emotions you felt")
     highlight = st.text_area("Sentence that shaped your impression")
 
     colA, colB = st.columns(2)
@@ -124,9 +142,8 @@ with col2:
                 "Highlight": highlight
             })
 
-            st.success("Review submitted!")
+            st.success("🌟 Thank you for lending your brainpower to this! The robots appreciate your wisdom. 🤖💛")
 
-            st.session_state.reviewed_articles.add(fields.get("Article ID"))
             st.session_state.current_article = None
             st.rerun()
 
