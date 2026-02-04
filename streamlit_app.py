@@ -17,8 +17,7 @@ HEADERS = {
 ARTICLES_URL = f"https://api.airtable.com/v0/{BASE_ID}/Articles"
 REVIEWS_URL = f"https://api.airtable.com/v0/{BASE_ID}/Human Reviews"
 
-# ---------- AIRTABLE HELPERS WITH PAGINATION ----------
-
+# ---------- AIRTABLE PAGINATION ----------
 def fetch_all_records(url, params=None):
     records = []
     offset = None
@@ -51,17 +50,27 @@ def save_review(data):
     requests.post(REVIEWS_URL, headers=HEADERS, json={"fields": data})
 
 
-# ---------- SESSION STATE ----------
+# ---------- RESET INPUTS WHEN ARTICLE CHANGES ----------
+def reset_review_inputs():
+    for key in [
+        "political", "intensity", "sensational",
+        "threat", "group", "emotions", "highlight"
+    ]:
+        st.session_state.pop(key, None)
 
+
+# ---------- SESSION STATE ----------
 if "reviewer_id" not in st.session_state:
     st.session_state.reviewer_id = ""
 
 if "current_article" not in st.session_state:
     st.session_state.current_article = None
 
+if "current_article_id" not in st.session_state:
+    st.session_state.current_article_id = None
+
 
 # ---------- UI ----------
-
 st.set_page_config(layout="wide")
 st.title("🧠 News Article Review")
 
@@ -73,7 +82,6 @@ else:
     st.stop()
 
 # ---------- LOAD DATA ----------
-
 all_articles = get_all_articles()
 user_reviews = get_reviews_by_user(st.session_state.reviewer_id)
 
@@ -84,8 +92,7 @@ total_articles = len(all_articles)
 reviewed_count = len(reviewed_ids)
 remaining_count = len(available_articles)
 
-# ---------- SIDEBAR METRICS ----------
-
+# ---------- SIDEBAR ----------
 st.sidebar.metric("Total articles in system", total_articles)
 st.sidebar.metric("You have reviewed", reviewed_count)
 st.sidebar.metric("Articles left for you", remaining_count)
@@ -93,21 +100,20 @@ st.sidebar.metric("Articles left for you", remaining_count)
 progress = reviewed_count / total_articles if total_articles else 0
 st.sidebar.progress(progress, text=f"Progress: {reviewed_count}/{total_articles}")
 
-# ---------- IF DONE ----------
-
+# ---------- FINISHED ----------
 if not available_articles:
-    st.success("🎉 You’ve reviewed all available articles. You are officially a news-sensei. Thank you!")
+    st.success("🎉 You’ve reviewed all available articles. Legend behaviour. Thank you!")
     st.stop()
 
-# ---------- LOAD NEW ARTICLE ----------
-
+# ---------- LOAD ARTICLE ----------
 if st.session_state.current_article is None:
     st.session_state.current_article = random.choice(available_articles)
+    st.session_state.current_article_id = st.session_state.current_article["fields"].get("Article ID")
+    reset_review_inputs()
 
 fields = st.session_state.current_article["fields"]
 
 # ---------- LAYOUT ----------
-
 col1, col2 = st.columns([2, 1])
 
 with col1:
@@ -117,14 +123,14 @@ with col1:
 with col2:
     st.subheader("Your Review")
 
-    political = st.slider("Political Leaning", 1, 5)
-    intensity = st.slider("Language Intensity", 1, 5)
-    sensational = st.slider("Sensationalism", 1, 5)
-    threat = st.slider("Threat / Alarm Level", 1, 5)
-    group = st.slider("Us vs Them Tone", 1, 5)
+    political = st.slider("Political Leaning", 1, 5, key="political")
+    intensity = st.slider("Language Intensity", 1, 5, key="intensity")
+    sensational = st.slider("Sensationalism", 1, 5, key="sensational")
+    threat = st.slider("Threat / Alarm Level", 1, 5, key="threat")
+    group = st.slider("Us vs Them Tone", 1, 5, key="group")
 
-    emotions = st.text_input("Emotions you felt")
-    highlight = st.text_area("Sentence that shaped your impression")
+    emotions = st.text_input("Emotions you felt", key="emotions")
+    highlight = st.text_area("Sentence that shaped your impression", key="highlight")
 
     colA, colB = st.columns(2)
 
@@ -142,12 +148,15 @@ with col2:
                 "Highlight": highlight
             })
 
-            st.success("🌟 Thank you for lending your brainpower to this! The robots appreciate your wisdom. 🤖💛")
+            st.success("🌟 Thank you for lending your brainpower! The algorithm just got smarter thanks to you 🤖💛")
 
             st.session_state.current_article = None
+            st.session_state.current_article_id = None
             st.rerun()
 
     with colB:
         if st.button("Skip Article"):
             st.session_state.current_article = random.choice(available_articles)
+            st.session_state.current_article_id = st.session_state.current_article["fields"].get("Article ID")
+            reset_review_inputs()
             st.rerun()
