@@ -50,7 +50,7 @@ def save_review(data):
     requests.post(REVIEWS_URL, headers=HEADERS, json={"fields": data})
 
 
-# ---------- RESET INPUTS WHEN ARTICLE CHANGES ----------
+# ---------- RESET FORM INPUTS ----------
 def reset_review_inputs():
     for key in [
         "political", "intensity", "sensational",
@@ -66,11 +66,8 @@ if "reviewer_id" not in st.session_state:
 if "current_article" not in st.session_state:
     st.session_state.current_article = None
 
-if "current_article_id" not in st.session_state:
-    st.session_state.current_article_id = None
 
-
-# ---------- UI ----------
+# ---------- PAGE SETUP ----------
 st.set_page_config(layout="wide")
 st.title("🧠 News Article Review")
 
@@ -102,13 +99,12 @@ st.sidebar.progress(progress, text=f"Progress: {reviewed_count}/{total_articles}
 
 # ---------- FINISHED ----------
 if not available_articles:
-    st.success("🎉 You’ve reviewed all available articles. Legend behaviour. Thank you!")
+    st.success("🎉 You’ve reviewed all available articles. You are officially a news-sensei. Thank you!")
     st.stop()
 
 # ---------- LOAD ARTICLE ----------
 if st.session_state.current_article is None:
     st.session_state.current_article = random.choice(available_articles)
-    st.session_state.current_article_id = st.session_state.current_article["fields"].get("Article ID")
     reset_review_inputs()
 
 fields = st.session_state.current_article["fields"]
@@ -123,40 +119,37 @@ with col1:
 with col2:
     st.subheader("Your Review")
 
-    political = st.slider("Political Leaning", 1, 5, key="political")
-    intensity = st.slider("Language Intensity", 1, 5, key="intensity")
-    sensational = st.slider("Sensationalism", 1, 5, key="sensational")
-    threat = st.slider("Threat / Alarm Level", 1, 5, key="threat")
-    group = st.slider("Us vs Them Tone", 1, 5, key="group")
+    with st.form("review_form"):
+        political = st.slider("Political Leaning", 1, 5, key="political")
+        intensity = st.slider("Language Intensity", 1, 5, key="intensity")
+        sensational = st.slider("Sensationalism", 1, 5, key="sensational")
+        threat = st.slider("Threat / Alarm Level", 1, 5, key="threat")
+        group = st.slider("Us vs Them Tone", 1, 5, key="group")
 
-    emotions = st.text_input("Emotions you felt", key="emotions")
-    highlight = st.text_area("Sentence that shaped your impression", key="highlight")
+        emotions = st.text_input("Emotions you felt", key="emotions")
+        highlight = st.text_area("Sentence that shaped your impression", key="highlight")
 
-    colA, colB = st.columns(2)
+        submit = st.form_submit_button("Submit Review")
 
-    with colA:
-        if st.button("Submit Review"):
-            save_review({
-                "Reviewer ID": st.session_state.reviewer_id,
-                "Article ID": fields.get("Article ID"),
-                "Political": political,
-                "Intensity": intensity,
-                "Sensational": sensational,
-                "Threat": threat,
-                "GroupConflict": group,
-                "Emotions": emotions,
-                "Highlight": highlight
-            })
+    if submit:
+        save_review({
+            "Reviewer ID": st.session_state.reviewer_id,
+            "Article ID": fields.get("Article ID"),
+            "Political": political,
+            "Intensity": intensity,
+            "Sensational": sensational,
+            "Threat": threat,
+            "GroupConflict": group,
+            "Emotions": emotions,
+            "Highlight": highlight
+        })
 
-            st.success("🌟 Thank you for lending your brainpower! The algorithm just got smarter thanks to you 🤖💛")
+        st.success("🌟 Thank you for lending your brainpower! The algorithm just got smarter thanks to you 🤖💛")
 
-            st.session_state.current_article = None
-            st.session_state.current_article_id = None
-            st.rerun()
+        st.session_state.current_article = None
+        st.rerun()
 
-    with colB:
-        if st.button("Skip Article"):
-            st.session_state.current_article = random.choice(available_articles)
-            st.session_state.current_article_id = st.session_state.current_article["fields"].get("Article ID")
-            reset_review_inputs()
-            st.rerun()
+    if st.button("Skip Article"):
+        st.session_state.current_article = random.choice(available_articles)
+        reset_review_inputs()
+        st.rerun()
