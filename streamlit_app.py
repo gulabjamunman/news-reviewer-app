@@ -98,4 +98,4 @@ with col2:
 
             # Load next article
             st.session_state.article = get_next_article()
-            st.experimental_rerun()
+            st.rerun()
