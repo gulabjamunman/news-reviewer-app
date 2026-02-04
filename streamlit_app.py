@@ -50,15 +50,6 @@ def save_review(data):
     requests.post(REVIEWS_URL, headers=HEADERS, json={"fields": data})
 
 
-# ---------- RESET FORM INPUTS ----------
-def reset_review_inputs():
-    for key in [
-        "political", "intensity", "sensational",
-        "threat", "group", "emotions", "highlight"
-    ]:
-        st.session_state.pop(key, None)
-
-
 # ---------- SESSION STATE ----------
 if "reviewer_id" not in st.session_state:
     st.session_state.reviewer_id = ""
@@ -105,9 +96,12 @@ if not available_articles:
 # ---------- LOAD ARTICLE ----------
 if st.session_state.current_article is None:
     st.session_state.current_article = random.choice(available_articles)
-    reset_review_inputs()
 
 fields = st.session_state.current_article["fields"]
+article_id = fields.get("Article ID")
+
+# Create dynamic key suffix
+key_suffix = f"_{article_id}"
 
 # ---------- LAYOUT ----------
 col1, col2 = st.columns([2, 1])
@@ -119,22 +113,23 @@ with col1:
 with col2:
     st.subheader("Your Review")
 
-    with st.form("review_form"):
-        political = st.slider("Political Leaning", 1, 5, key="political")
-        intensity = st.slider("Language Intensity", 1, 5, key="intensity")
-        sensational = st.slider("Sensationalism", 1, 5, key="sensational")
-        threat = st.slider("Threat / Alarm Level", 1, 5, key="threat")
-        group = st.slider("Us vs Them Tone", 1, 5, key="group")
+    with st.form(f"review_form_{article_id}"):
 
-        emotions = st.text_input("Emotions you felt", key="emotions")
-        highlight = st.text_area("Sentence that shaped your impression", key="highlight")
+        political = st.slider("Political Leaning", 1, 5, key=f"political{key_suffix}")
+        intensity = st.slider("Language Intensity", 1, 5, key=f"intensity{key_suffix}")
+        sensational = st.slider("Sensationalism", 1, 5, key=f"sensational{key_suffix}")
+        threat = st.slider("Threat / Alarm Level", 1, 5, key=f"threat{key_suffix}")
+        group = st.slider("Us vs Them Tone", 1, 5, key=f"group{key_suffix}")
+
+        emotions = st.text_input("Emotions you felt", key=f"emotions{key_suffix}")
+        highlight = st.text_area("Sentence that shaped your impression", key=f"highlight{key_suffix}")
 
         submit = st.form_submit_button("Submit Review")
 
     if submit:
         save_review({
             "Reviewer ID": st.session_state.reviewer_id,
-            "Article ID": fields.get("Article ID"),
+            "Article ID": article_id,
             "Political": political,
             "Intensity": intensity,
             "Sensational": sensational,
@@ -151,5 +146,4 @@ with col2:
 
     if st.button("Skip Article"):
         st.session_state.current_article = random.choice(available_articles)
-        reset_review_inputs()
         st.rerun()
