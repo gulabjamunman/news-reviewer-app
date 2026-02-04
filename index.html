@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>News Review Bot</title>
+</head>
+<body>
+    <h2>News Article Reviewer</h2>
+    <div id="chat"></div>
+    <input id="msg" placeholder="Type here"/>
+    <button onclick="send()">Send</button>
+
+    <script>
+        let user_id = Math.random().toString(36).substring(2);
+
+        async function send(){
+            let m = document.getElementById("msg").value;
+            let r = await fetch("/chat", {
+                method: "POST",
+                headers: {"Content-Type":"application/json"},
+                body: JSON.stringify({user_id:user_id, message:m})
+            });
+            let j = await r.json();
+            document.getElementById("chat").innerHTML += "<p><b>You:</b> " + m + "</p><p><b>Bot:</b> " + j.reply + "</p>";
+            document.getElementById("msg").value = "";
+        }
+    </script>
+</body>
+</html>
