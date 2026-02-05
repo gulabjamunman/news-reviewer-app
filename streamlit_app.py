@@ -62,6 +62,14 @@ if "current_article" not in st.session_state:
 st.set_page_config(layout="wide")
 st.title("🧠 News Article Review")
 
+st.info("""
+**How to review:**  
+Read the article once like a normal reader.  
+Then rate how it *felt*, not whether you agree with it.
+
+There are no right or wrong answers. We are comparing human perception with AI interpretation.
+""")
+
 reviewer_input = st.text_input("Reviewer ID", value=st.session_state.reviewer_id)
 
 if reviewer_input:
@@ -88,6 +96,29 @@ st.sidebar.metric("Articles left for you", remaining_count)
 progress = reviewed_count / total_articles if total_articles else 0
 st.sidebar.progress(progress, text=f"Progress: {reviewed_count}/{total_articles}")
 
+st.sidebar.markdown("### 🧭 Rating Guide")
+st.sidebar.markdown("""
+**Political Framing**  
+1 = Left-leaning (justice, equality, welfare focus)  
+5 = Right-leaning (nationalism, security, law & order)
+
+**Language Intensity**  
+1 = Calm and factual  
+5 = Emotionally charged
+
+**Sensationalism**  
+1 = Straight reporting  
+5 = Dramatic or exaggerated
+
+**Threat Level**  
+1 = No sense of danger  
+5 = Strong sense of threat or alarm
+
+**Us vs Them Tone**  
+1 = No group division  
+5 = Strong group conflict or identity framing
+""")
+
 # ---------- FINISHED ----------
 if not available_articles:
     st.success("🎉 You’ve reviewed all available articles. You are officially a news-sensei. Thank you!")
@@ -99,8 +130,6 @@ if st.session_state.current_article is None:
 
 fields = st.session_state.current_article["fields"]
 article_id = fields.get("Article ID")
-
-# Create dynamic key suffix
 key_suffix = f"_{article_id}"
 
 # ---------- LAYOUT ----------
@@ -113,16 +142,40 @@ with col1:
 with col2:
     st.subheader("Your Review")
 
+    st.markdown("### 💭 Emotional Reaction Guide")
+    st.caption("You don’t need to feel all of these — just notice what stood out.")
+    st.markdown("""
+    - Fear or anxiety  
+    - Anger or outrage  
+    - Pride or nationalism  
+    - Sympathy or empathy  
+    - Distrust or suspicion  
+    - Hope or reassurance  
+    """)
+
     with st.form(f"review_form_{article_id}"):
 
-        political = st.slider("Political Leaning", 1, 5, key=f"political{key_suffix}")
-        intensity = st.slider("Language Intensity", 1, 5, key=f"intensity{key_suffix}")
-        sensational = st.slider("Sensationalism", 1, 5, key=f"sensational{key_suffix}")
-        threat = st.slider("Threat / Alarm Level", 1, 5, key=f"threat{key_suffix}")
-        group = st.slider("Us vs Them Tone", 1, 5, key=f"group{key_suffix}")
+        st.markdown("### 🏛 Political Framing")
+        political = st.slider("Left-leaning ← → Right-leaning", 1, 5, key=f"political{key_suffix}")
 
-        emotions = st.text_input("Emotions you felt", key=f"emotions{key_suffix}")
-        highlight = st.text_area("Sentence that shaped your impression", key=f"highlight{key_suffix}")
+        st.markdown("### 🌡 Language Intensity")
+        intensity = st.slider("Calm ← → Emotionally Charged", 1, 5, key=f"intensity{key_suffix}")
+
+        st.markdown("### 🎬 Sensationalism")
+        sensational = st.slider("Measured ← → Dramatic", 1, 5, key=f"sensational{key_suffix}")
+
+        st.markdown("### 🚨 Threat / Alarm Level")
+        threat = st.slider("Low Threat ← → High Threat", 1, 5, key=f"threat{key_suffix}")
+
+        st.markdown("### 👥 Us vs Them Tone")
+        group = st.slider("No Division ← → Strong Division", 1, 5, key=f"group{key_suffix}")
+
+        st.markdown("### 💬 What emotions did you feel?")
+        emotions = st.text_input("Optional", key=f"emotions{key_suffix}")
+
+        st.markdown("### 🧩 What shaped your impression?")
+        st.caption("Copy and paste a sentence from the article that influenced your ratings.")
+        highlight = st.text_area("Paste sentence here", key=f"highlight{key_suffix}")
 
         submit = st.form_submit_button("Submit Review")
 
