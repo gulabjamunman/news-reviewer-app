@@ -175,7 +175,7 @@ with col2:
 
         st.markdown("### 🧩 What shaped your impression?")
         st.caption("Copy and paste a sentence from the article that influenced your ratings or just write here about how your felt about the article.")
-        highlight = st.text_area("Paste sentence here", key=f"highlight{key_suffix}")
+        highlight = st.text_area("Write here", key=f"highlight{key_suffix}")
 
         submit = st.form_submit_button("Submit Review")
 
