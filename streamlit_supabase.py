@@ -40,7 +40,6 @@ else:
 # ---------- DATA LOADING FUNCTIONS ----------
 
 def get_active_articles():
-    """Fetch active articles from review queue with join to articles table"""
     data = supabase.table("review_articles") \
         .select("article_id, articles(id, headline, content)") \
         .eq("active", True) \
@@ -48,11 +47,13 @@ def get_active_articles():
 
     return [row["articles"] for row in data if row.get("articles")]
 
+
 def get_reviews_by_user(reviewer_id):
     return supabase.table("human_reviews") \
         .select("article_id") \
         .eq("reviewer_id", reviewer_id) \
         .execute().data
+
 
 def save_review(data):
     supabase.table("human_reviews").insert(data).execute()
@@ -65,7 +66,7 @@ reviewed_ids = {r["article_id"] for r in user_reviews}
 available_articles = [a for a in all_articles if a["id"] not in reviewed_ids]
 
 total_articles = len(all_articles)
-reviewed_count = len(reviewed_ids)
+reviewed_count = len(user_reviews)
 remaining_count = len(available_articles)
 
 # ---------- SIDEBAR ----------
@@ -104,8 +105,11 @@ if not available_articles:
     st.success("🎉 You’ve reviewed all available articles. You are officially a news-sensei. Thank you!")
     st.stop()
 
-# ---------- LOAD ARTICLE ----------
-if st.session_state.current_article is None:
+# ---------- LOAD ARTICLE SAFELY ----------
+if (
+    st.session_state.current_article is None
+    or st.session_state.current_article["id"] in reviewed_ids
+):
     st.session_state.current_article = random.choice(available_articles)
 
 article = st.session_state.current_article
@@ -172,6 +176,11 @@ with col2:
         })
 
         st.success("🌟 Thank you for lending your brainpower! The algorithm just got smarter thanks to you 🤖💛")
+
+        # Clear widget state so next article is fresh
+        for key in list(st.session_state.keys()):
+            if key.startswith(("political_", "intensity_", "sensational_", "threat_", "group_", "emotions_", "highlight_")):
+                del st.session_state[key]
 
         st.session_state.current_article = None
         st.rerun()
