@@ -37,22 +37,28 @@ if reviewer_input:
 else:
     st.stop()
 
-# ---------- LOAD DATA FROM SUPABASE ----------
-def get_review_queue():
-    queue = supabase.table("review_articles").select("article_id").eq("active", True).execute().data
-    return [q["article_id"] for q in queue]
+# ---------- DATA LOADING FUNCTIONS ----------
 
-def get_articles(article_ids):
-    return supabase.table("articles").select("id, headline, content").in_("id", article_ids).execute().data
+def get_active_articles():
+    """Fetch active articles from review queue with join to articles table"""
+    data = supabase.table("review_articles") \
+        .select("article_id, articles(id, headline, content)") \
+        .eq("active", True) \
+        .execute().data
+
+    return [row["articles"] for row in data if row.get("articles")]
 
 def get_reviews_by_user(reviewer_id):
-    return supabase.table("human_reviews").select("article_id").eq("reviewer_id", reviewer_id).execute().data
+    return supabase.table("human_reviews") \
+        .select("article_id") \
+        .eq("reviewer_id", reviewer_id) \
+        .execute().data
 
 def save_review(data):
     supabase.table("human_reviews").insert(data).execute()
 
-queue_ids = get_review_queue()
-all_articles = get_articles(queue_ids)
+# ---------- LOAD DATA ----------
+all_articles = get_active_articles()
 user_reviews = get_reviews_by_user(st.session_state.reviewer_id)
 
 reviewed_ids = {r["article_id"] for r in user_reviews}
