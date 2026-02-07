@@ -140,7 +140,7 @@ if not reviewer_input:
 current_id = normalize_reviewer_id(reviewer_input)
 
 if current_id not in valid_reviewers:
-    st.error("This Reviewer ID is not authorised to access this study.")
+    st.error("Invalid User ID, Contact Devayani in the WhatsApp group to get an ID assigned")
     st.stop()
 
 st.session_state.reviewer_id = current_id
