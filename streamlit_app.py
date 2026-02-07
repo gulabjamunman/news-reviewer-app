@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import random
 from collections import Counter
 
+# ---------- ENV ----------
 load_dotenv()
 
 AIRTABLE_TOKEN = os.getenv("AIRTABLE_TOKEN")
@@ -18,7 +19,13 @@ HEADERS = {
 ARTICLES_URL = f"https://api.airtable.com/v0/{BASE_ID}/Articles"
 REVIEWS_URL = f"https://api.airtable.com/v0/{BASE_ID}/Human Reviews"
 
-# ---------- AIRTABLE PAGINATION ----------
+# ---------- HELPERS ----------
+def normalize_reviewer_id(rid):
+    if not rid:
+        return None
+    return rid.strip().lower()
+
+
 def fetch_all_records(url, params=None):
     records = []
     offset = None
@@ -51,15 +58,15 @@ def save_review(data):
     requests.post(REVIEWS_URL, headers=HEADERS, json={"fields": data})
 
 
-# ---------- LEADERBOARD ----------
 def get_reviewer_leaderboard(top_n=10):
     reviews = fetch_all_records(REVIEWS_URL)
 
-    reviewer_ids = [
-        r["fields"].get("Reviewer ID")
-        for r in reviews
-        if r.get("fields", {}).get("Reviewer ID")
-    ]
+    reviewer_ids = []
+    for r in reviews:
+        raw_id = r.get("fields", {}).get("Reviewer ID")
+        norm_id = normalize_reviewer_id(raw_id)
+        if norm_id:
+            reviewer_ids.append(norm_id)
 
     counts = Counter(reviewer_ids)
     return counts.most_common(top_n)
@@ -73,12 +80,11 @@ if "current_article" not in st.session_state:
     st.session_state.current_article = None
 
 
-# ---------- PAGE SETUP ----------
+# ---------- PAGE ----------
 st.set_page_config(layout="wide")
 st.title("🧠 News Article Review")
 
 st.info("""
-**How to review:**  
 Read the article once like a normal reader.  
 Then rate how it *felt*, not whether you agree with it.
 
@@ -88,20 +94,25 @@ There are no right or wrong answers. We are comparing human perception with AI i
 reviewer_input = st.text_input("Reviewer ID", value=st.session_state.reviewer_id)
 
 if reviewer_input:
-    st.session_state.reviewer_id = reviewer_input
+    st.session_state.reviewer_id = normalize_reviewer_id(reviewer_input)
 else:
     st.stop()
+
 
 # ---------- LOAD DATA ----------
 all_articles = get_all_articles()
 user_reviews = get_reviews_by_user(st.session_state.reviewer_id)
 
 reviewed_ids = {r["fields"].get("Article ID") for r in user_reviews}
-available_articles = [a for a in all_articles if a["fields"].get("Article ID") not in reviewed_ids]
+available_articles = [
+    a for a in all_articles
+    if a["fields"].get("Article ID") not in reviewed_ids
+]
 
 total_articles = len(all_articles)
 reviewed_count = len(reviewed_ids)
 remaining_count = len(available_articles)
+
 
 # ---------- SIDEBAR ----------
 st.sidebar.metric("Total articles in system", total_articles)
@@ -114,41 +125,44 @@ st.sidebar.progress(progress, text=f"Progress: {reviewed_count}/{total_articles}
 st.sidebar.markdown("### 🏆 Top Reviewers")
 
 leaderboard = get_reviewer_leaderboard(top_n=10)
+current_id = normalize_reviewer_id(st.session_state.reviewer_id)
 
 if leaderboard:
     for rank, (rid, count) in enumerate(leaderboard, start=1):
-        suffix = " ← you" if rid == st.session_state.reviewer_id else ""
+        suffix = " ← you" if rid == current_id else ""
         st.sidebar.write(f"{rank}. **{rid}** – {count} reviews{suffix}")
 else:
-    st.sidebar.caption("No reviews yet. Be the first 🧠")
+    st.sidebar.caption("No reviews yet.")
 
 st.sidebar.markdown("### 🧭 Rating Guide")
 st.sidebar.markdown("""
 **Political Framing**  
-1 = Left-leaning (justice, equality, welfare focus)  
-5 = Right-leaning (nationalism, security, law & order)
+1 = Left-leaning  
+5 = Right-leaning  
 
 **Language Intensity**  
-1 = Calm and factual  
-5 = Emotionally charged
+1 = Calm  
+5 = Emotionally charged  
 
 **Sensationalism**  
 1 = Straight reporting  
-5 = Dramatic or exaggerated
+5 = Dramatic  
 
 **Threat Level**  
-1 = No sense of danger  
-5 = Strong sense of threat or alarm
+1 = No alarm  
+5 = Strong alarm  
 
 **Us vs Them Tone**  
-1 = No group division  
-5 = Strong group conflict or identity framing
+1 = No division  
+5 = Strong division
 """)
+
 
 # ---------- FINISHED ----------
 if not available_articles:
-    st.success("🎉 You’ve reviewed all available articles. You are officially a news-sensei. Thank you!")
+    st.success("🎉 You’ve reviewed all available articles. Thank you!")
     st.stop()
+
 
 # ---------- LOAD ARTICLE ----------
 if st.session_state.current_article is None:
@@ -157,6 +171,7 @@ if st.session_state.current_article is None:
 fields = st.session_state.current_article["fields"]
 article_id = fields.get("Article ID")
 key_suffix = f"_{article_id}"
+
 
 # ---------- LAYOUT ----------
 col1, col2 = st.columns([2, 1])
@@ -168,40 +183,16 @@ with col1:
 with col2:
     st.subheader("Your Review")
 
-    st.markdown("### 💭 Emotional Reaction Guide")
-    st.caption("You don’t need to feel all of these — just notice what stood out.")
-    st.markdown("""
-    - Fear or anxiety  
-    - Anger or outrage  
-    - Pride or nationalism  
-    - Sympathy or empathy  
-    - Distrust or suspicion  
-    - Hope or reassurance  
-    """)
-
     with st.form(f"review_form_{article_id}"):
 
-        st.markdown("### 🏛 Political Framing")
-        political = st.slider("Left-leaning ← → Right-leaning", 1, 5, key=f"political{key_suffix}")
+        political = st.slider("Political framing", 1, 5, key=f"political{key_suffix}")
+        intensity = st.slider("Language intensity", 1, 5, key=f"intensity{key_suffix}")
+        sensational = st.slider("Sensationalism", 1, 5, key=f"sensational{key_suffix}")
+        threat = st.slider("Threat level", 1, 5, key=f"threat{key_suffix}")
+        group = st.slider("Us vs them tone", 1, 5, key=f"group{key_suffix}")
 
-        st.markdown("### 🌡 Language Intensity")
-        intensity = st.slider("Calm ← → Emotionally Charged", 1, 5, key=f"intensity{key_suffix}")
-
-        st.markdown("### 🎬 Sensationalism")
-        sensational = st.slider("Measured ← → Dramatic", 1, 5, key=f"sensational{key_suffix}")
-
-        st.markdown("### 🚨 Threat / Alarm Level")
-        threat = st.slider("Low Threat ← → High Threat", 1, 5, key=f"threat{key_suffix}")
-
-        st.markdown("### 👥 Us vs Them Tone")
-        group = st.slider("No Division ← → Strong Division", 1, 5, key=f"group{key_suffix}")
-
-        st.markdown("### 💬 What emotions did you feel?")
-        emotions = st.text_input("Optional", key=f"emotions{key_suffix}")
-
-        st.markdown("### 🧩 What shaped your impression?")
-        st.caption("Copy and paste a sentence from the article that influenced your ratings or just write here about how your felt about the article.")
-        highlight = st.text_area("Write here", key=f"highlight{key_suffix}")
+        emotions = st.text_input("Emotions felt (optional)", key=f"emotions{key_suffix}")
+        highlight = st.text_area("Sentence that shaped your impression", key=f"highlight{key_suffix}")
 
         submit = st.form_submit_button("Submit Review")
 
@@ -218,7 +209,7 @@ with col2:
             "Highlight": highlight
         })
 
-        st.success("🌟 Thank you for lending your brainpower! The algorithm just got smarter thanks to you 🤖💛")
+        st.success("🌟 Review submitted. Thank you!")
 
         st.session_state.current_article = None
         st.rerun()
