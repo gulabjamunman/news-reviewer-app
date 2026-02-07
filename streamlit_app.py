@@ -4,8 +4,9 @@ import streamlit as st
 from dotenv import load_dotenv
 import random
 from collections import Counter
+from datetime import datetime, timedelta
 
-# ---------- ENV ----------
+# ================== ENV ==================
 load_dotenv()
 
 AIRTABLE_TOKEN = os.getenv("AIRTABLE_TOKEN")
@@ -19,13 +20,13 @@ HEADERS = {
 ARTICLES_URL = f"https://api.airtable.com/v0/{BASE_ID}/Articles"
 REVIEWS_URL = f"https://api.airtable.com/v0/{BASE_ID}/Human Reviews"
 
-# ---------- HELPERS ----------
+# ================== NORMALIZATION ==================
 def normalize_reviewer_id(rid):
     if not rid:
         return None
     return rid.strip().lower()
 
-
+# ================== AIRTABLE HELPERS ==================
 def fetch_all_records(url, params=None):
     records = []
     offset = None
@@ -44,43 +45,69 @@ def fetch_all_records(url, params=None):
 
     return records
 
-
 def get_all_articles():
     return fetch_all_records(ARTICLES_URL)
-
-
-def get_reviews_by_user(reviewer_id):
-    formula = f"{{Reviewer ID}}='{reviewer_id}'"
-    return fetch_all_records(REVIEWS_URL, {"filterByFormula": formula})
-
 
 def save_review(data):
     requests.post(REVIEWS_URL, headers=HEADERS, json={"fields": data})
 
+# ================== STREAK LOGIC ==================
+def calculate_streak(dates):
+    if not dates:
+        return 0
 
-def get_reviewer_leaderboard(top_n=10):
+    dates = sorted(set(dates))
+    streak = 1
+
+    for i in range(len(dates) - 1, 0, -1):
+        if dates[i] - dates[i - 1] == timedelta(days=1):
+            streak += 1
+        else:
+            break
+
+    return streak
+
+def get_reviewer_stats():
     reviews = fetch_all_records(REVIEWS_URL)
 
-    reviewer_ids = []
+    data = {}
     for r in reviews:
-        raw_id = r.get("fields", {}).get("Reviewer ID")
-        norm_id = normalize_reviewer_id(raw_id)
-        if norm_id:
-            reviewer_ids.append(norm_id)
+        rid = normalize_reviewer_id(r.get("fields", {}).get("Reviewer ID"))
+        if not rid:
+            continue
 
-    counts = Counter(reviewer_ids)
-    return counts.most_common(top_n)
+        data.setdefault(rid, {"count": 0, "dates": []})
+        data[rid]["count"] += 1
 
+        created = r.get("createdTime")
+        if created:
+            date = datetime.fromisoformat(created.replace("Z", "")).date()
+            data[rid]["dates"].append(date)
 
-# ---------- SESSION STATE ----------
+    stats = []
+    for rid, info in data.items():
+        streak = calculate_streak(info["dates"])
+        stats.append((rid, info["count"], streak))
+
+    return sorted(stats, key=lambda x: x[1], reverse=True)
+
+def get_historical_review_count(reviewer_id):
+    reviews = fetch_all_records(REVIEWS_URL)
+    norm_id = normalize_reviewer_id(reviewer_id)
+
+    return sum(
+        1 for r in reviews
+        if normalize_reviewer_id(r.get("fields", {}).get("Reviewer ID")) == norm_id
+    )
+
+# ================== SESSION ==================
 if "reviewer_id" not in st.session_state:
     st.session_state.reviewer_id = ""
 
 if "current_article" not in st.session_state:
     st.session_state.current_article = None
 
-
-# ---------- PAGE ----------
+# ================== PAGE ==================
 st.set_page_config(layout="wide")
 st.title("🧠 News Article Review")
 
@@ -88,7 +115,7 @@ st.info("""
 Read the article once like a normal reader.  
 Then rate how it *felt*, not whether you agree with it.
 
-There are no right or wrong answers. We are comparing human perception with AI interpretation.
+There are no right or wrong answers.
 """)
 
 reviewer_input = st.text_input("Reviewer ID", value=st.session_state.reviewer_id)
@@ -98,41 +125,55 @@ if reviewer_input:
 else:
     st.stop()
 
+current_id = st.session_state.reviewer_id
 
-# ---------- LOAD DATA ----------
+# ================== LOAD DATA ==================
 all_articles = get_all_articles()
-user_reviews = get_reviews_by_user(st.session_state.reviewer_id)
+reviews = fetch_all_records(REVIEWS_URL)
 
-reviewed_ids = {r["fields"].get("Article ID") for r in user_reviews}
+reviewed_article_ids = {
+    r["fields"].get("Article ID")
+    for r in reviews
+    if normalize_reviewer_id(r.get("fields", {}).get("Reviewer ID")) == current_id
+}
+
 available_articles = [
     a for a in all_articles
-    if a["fields"].get("Article ID") not in reviewed_ids
+    if a["fields"].get("Article ID") not in reviewed_article_ids
 ]
 
 total_articles = len(all_articles)
-reviewed_count = len(reviewed_ids)
-remaining_count = len(available_articles)
+reviewed_count = get_historical_review_count(current_id)
+remaining_count = total_articles - reviewed_count
 
-
-# ---------- SIDEBAR ----------
+# ================== SIDEBAR ==================
+st.sidebar.markdown("### 📊 Your Momentum")
 st.sidebar.metric("Total articles in system", total_articles)
 st.sidebar.metric("You have reviewed", reviewed_count)
 st.sidebar.metric("Articles left for you", remaining_count)
 
 progress = reviewed_count / total_articles if total_articles else 0
-st.sidebar.progress(progress, text=f"Progress: {reviewed_count}/{total_articles}")
+st.sidebar.progress(progress, text=f"{reviewed_count}/{total_articles}")
 
 st.sidebar.markdown("### 🏆 Top Reviewers")
 
-leaderboard = get_reviewer_leaderboard(top_n=10)
-current_id = normalize_reviewer_id(st.session_state.reviewer_id)
+leaderboard = get_reviewer_stats()[:10]
 
-if leaderboard:
-    for rank, (rid, count) in enumerate(leaderboard, start=1):
-        suffix = " ← you" if rid == current_id else ""
-        st.sidebar.write(f"{rank}. **{rid}** – {count} reviews{suffix}")
-else:
-    st.sidebar.caption("No reviews yet.")
+for rank, (rid, count, streak) in enumerate(leaderboard, start=1):
+    badge = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else "🔹"
+    is_you = rid == current_id
+    name = f"**{rid}**" if is_you else rid
+    you_tag = " ← you" if is_you else ""
+
+    st.sidebar.markdown(
+        f"""
+        {badge} **{rank}. {name}**  
+        <span style="color:#666">
+        {count} reviews · 🔥 {streak}-day streak
+        </span>{you_tag}
+        """,
+        unsafe_allow_html=True
+    )
 
 st.sidebar.markdown("### 🧭 Rating Guide")
 st.sidebar.markdown("""
@@ -142,7 +183,7 @@ st.sidebar.markdown("""
 
 **Language Intensity**  
 1 = Calm  
-5 = Emotionally charged  
+5 = Emotional  
 
 **Sensationalism**  
 1 = Straight reporting  
@@ -150,21 +191,19 @@ st.sidebar.markdown("""
 
 **Threat Level**  
 1 = No alarm  
-5 = Strong alarm  
+5 = High alarm  
 
 **Us vs Them Tone**  
 1 = No division  
 5 = Strong division
 """)
 
-
-# ---------- FINISHED ----------
+# ================== NO ARTICLES LEFT ==================
 if not available_articles:
     st.success("🎉 You’ve reviewed all available articles. Thank you!")
     st.stop()
 
-
-# ---------- LOAD ARTICLE ----------
+# ================== LOAD ARTICLE ==================
 if st.session_state.current_article is None:
     st.session_state.current_article = random.choice(available_articles)
 
@@ -172,8 +211,7 @@ fields = st.session_state.current_article["fields"]
 article_id = fields.get("Article ID")
 key_suffix = f"_{article_id}"
 
-
-# ---------- LAYOUT ----------
+# ================== LAYOUT ==================
 col1, col2 = st.columns([2, 1])
 
 with col1:
@@ -198,7 +236,7 @@ with col2:
 
     if submit:
         save_review({
-            "Reviewer ID": st.session_state.reviewer_id,
+            "Reviewer ID": current_id,
             "Article ID": article_id,
             "Political": political,
             "Intensity": intensity,
@@ -210,7 +248,6 @@ with col2:
         })
 
         st.success("🌟 Review submitted. Thank you!")
-
         st.session_state.current_article = None
         st.rerun()
 
