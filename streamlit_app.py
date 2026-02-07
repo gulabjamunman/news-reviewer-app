@@ -3,7 +3,6 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 import random
-from collections import Counter
 from datetime import datetime, timedelta
 
 # ================== ENV ==================
@@ -19,6 +18,7 @@ HEADERS = {
 
 ARTICLES_URL = f"https://api.airtable.com/v0/{BASE_ID}/Articles"
 REVIEWS_URL = f"https://api.airtable.com/v0/{BASE_ID}/Human Reviews"
+REVIEWERS_URL = f"https://api.airtable.com/v0/{BASE_ID}/Reviewers"
 
 # ================== NORMALIZATION ==================
 def normalize_reviewer_id(rid):
@@ -51,6 +51,16 @@ def get_all_articles():
 def save_review(data):
     requests.post(REVIEWS_URL, headers=HEADERS, json={"fields": data})
 
+# ================== REVIEWER AUTH ==================
+@st.cache_data(ttl=300)
+def get_valid_reviewer_ids():
+    records = fetch_all_records(REVIEWERS_URL)
+    return {
+        normalize_reviewer_id(r["fields"].get("Reviewer ID"))
+        for r in records
+        if r.get("fields", {}).get("Reviewer ID")
+    }
+
 # ================== STREAK LOGIC ==================
 def calculate_streak(dates):
     if not dates:
@@ -69,8 +79,8 @@ def calculate_streak(dates):
 
 def get_reviewer_stats():
     reviews = fetch_all_records(REVIEWS_URL)
-
     data = {}
+
     for r in reviews:
         rid = normalize_reviewer_id(r.get("fields", {}).get("Reviewer ID"))
         if not rid:
@@ -86,8 +96,7 @@ def get_reviewer_stats():
 
     stats = []
     for rid, info in data.items():
-        streak = calculate_streak(info["dates"])
-        stats.append((rid, info["count"], streak))
+        stats.append((rid, info["count"], calculate_streak(info["dates"])))
 
     return sorted(stats, key=lambda x: x[1], reverse=True)
 
@@ -102,30 +111,39 @@ def get_historical_review_count(reviewer_id):
 
 # ================== SESSION ==================
 if "reviewer_id" not in st.session_state:
-    st.session_state.reviewer_id = ""
+    st.session_state.reviewer_id = None
 
 if "current_article" not in st.session_state:
     st.session_state.current_article = None
 
 # ================== PAGE ==================
 st.set_page_config(layout="wide")
-st.title("🧠 News Article Review")
+st.title("News Article Review")
 
-st.info("""
-Read the article once like a normal reader.  
-Then rate how it *felt*, not whether you agree with it.
+st.markdown(
+    """
+    Read the article once like a normal reader.  
+    Then rate how it *felt* to you as a reader.
 
-There are no right or wrong answers.
-""")
+    There are no right or wrong answers.
+    """
+)
 
-reviewer_input = st.text_input("Reviewer ID", value=st.session_state.reviewer_id)
+# ================== AUTH GATE ==================
+valid_reviewers = get_valid_reviewer_ids()
 
-if reviewer_input:
-    st.session_state.reviewer_id = normalize_reviewer_id(reviewer_input)
-else:
+reviewer_input = st.text_input("Reviewer ID")
+
+if not reviewer_input:
     st.stop()
 
-current_id = st.session_state.reviewer_id
+current_id = normalize_reviewer_id(reviewer_input)
+
+if current_id not in valid_reviewers:
+    st.error("This Reviewer ID is not authorised to access this study.")
+    st.stop()
+
+st.session_state.reviewer_id = current_id
 
 # ================== LOAD DATA ==================
 all_articles = get_all_articles()
@@ -147,60 +165,21 @@ reviewed_count = get_historical_review_count(current_id)
 remaining_count = total_articles - reviewed_count
 
 # ================== SIDEBAR ==================
-st.sidebar.markdown("### 📊 Your Momentum")
-st.sidebar.metric("Total articles in system", total_articles)
-st.sidebar.metric("You have reviewed", reviewed_count)
-st.sidebar.metric("Articles left for you", remaining_count)
+st.sidebar.markdown("### Your Progress")
+st.sidebar.metric("Articles reviewed", reviewed_count)
+st.sidebar.metric("Articles remaining", remaining_count)
 
 progress = reviewed_count / total_articles if total_articles else 0
-st.sidebar.progress(progress, text=f"{reviewed_count}/{total_articles}")
+st.sidebar.progress(progress, text=f"{reviewed_count} / {total_articles}")
 
-st.sidebar.markdown("### 🏆 Top Reviewers")
-
-leaderboard = get_reviewer_stats()[:10]
-
-for rank, (rid, count, streak) in enumerate(leaderboard, start=1):
-    badge = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else "🔹"
-    is_you = rid == current_id
-    name = f"**{rid}**" if is_you else rid
-    you_tag = " ← you" if is_you else ""
-
-    st.sidebar.markdown(
-        f"""
-        {badge} **{rank}. {name}**  
-        <span style="color:#666">
-        {count} reviews · 🔥 {streak}-day streak
-        </span>{you_tag}
-        """,
-        unsafe_allow_html=True
-    )
-
-st.sidebar.markdown("### 🧭 Rating Guide")
-st.sidebar.markdown("""
-**Political Framing**  
-1 = Left-leaning  
-5 = Right-leaning  
-
-**Language Intensity**  
-1 = Calm  
-5 = Emotional  
-
-**Sensationalism**  
-1 = Straight reporting  
-5 = Dramatic  
-
-**Threat Level**  
-1 = No alarm  
-5 = High alarm  
-
-**Us vs Them Tone**  
-1 = No division  
-5 = Strong division
-""")
+st.sidebar.markdown("### Top Reviewers")
+for rank, (rid, count, streak) in enumerate(get_reviewer_stats()[:10], start=1):
+    tag = " (you)" if rid == current_id else ""
+    st.sidebar.markdown(f"{rank}. {rid}{tag}  \n{count} reviews · {streak}-day streak")
 
 # ================== NO ARTICLES LEFT ==================
 if not available_articles:
-    st.success("🎉 You’ve reviewed all available articles. Thank you!")
+    st.success("You have reviewed all available articles. Thank you.")
     st.stop()
 
 # ================== LOAD ARTICLE ==================
@@ -212,27 +191,63 @@ article_id = fields.get("Article ID")
 key_suffix = f"_{article_id}"
 
 # ================== LAYOUT ==================
-col1, col2 = st.columns([2, 1])
+col1, col2 = st.columns([2.2, 1])
 
 with col1:
-    st.header(fields.get("Headline", "No headline"))
+    st.subheader(fields.get("Headline", "No headline"))
     st.write(fields.get("Content", "No content available"))
 
 with col2:
-    st.subheader("Your Review")
+    st.subheader("Your Assessment")
 
     with st.form(f"review_form_{article_id}"):
 
-        political = st.slider("Political framing", 1, 5, key=f"political{key_suffix}")
-        intensity = st.slider("Language intensity", 1, 5, key=f"intensity{key_suffix}")
-        sensational = st.slider("Sensationalism", 1, 5, key=f"sensational{key_suffix}")
-        threat = st.slider("Threat level", 1, 5, key=f"threat{key_suffix}")
-        group = st.slider("Us vs them tone", 1, 5, key=f"group{key_suffix}")
+        st.markdown("**Political framing**")
+        st.caption("1 = Left-leaning | 3 = Neutral | 5 = Right-leaning")
+        political = st.slider(
+            " ",
+            1, 5,
+            key=f"political{key_suffix}"
+        )
 
-        emotions = st.text_input("Emotions felt (optional)", key=f"emotions{key_suffix}")
-        highlight = st.text_area("Sentence that shaped your impression", key=f"highlight{key_suffix}")
+        st.markdown("**Language intensity**")
+        st.caption("1 = Calm, factual | 5 = Highly emotional or charged")
+        intensity = st.slider(
+            "  ",
+            1, 5,
+            key=f"intensity{key_suffix}"
+        )
 
-        submit = st.form_submit_button("Submit Review")
+        st.markdown("**Sensationalism**")
+        st.caption("1 = Straight reporting | 5 = Dramatic or exaggerated")
+        sensational = st.slider(
+            "   ",
+            1, 5,
+            key=f"sensational{key_suffix}"
+        )
+
+        st.markdown("**Perceived threat level**")
+        st.caption("1 = No alarm | 5 = Urgent or alarming")
+        threat = st.slider(
+            "    ",
+            1, 5,
+            key=f"threat{key_suffix}"
+        )
+
+        st.markdown("**Us vs them tone**")
+        st.caption("1 = No division | 5 = Strong in-group vs out-group framing")
+        group = st.slider(
+            "     ",
+            1, 5,
+            key=f"group{key_suffix}"
+        )
+
+        st.markdown("---")
+
+        emotions = st.text_input("Emotions felt (optional)")
+        highlight = st.text_area("Sentence that shaped your impression")
+
+        submit = st.form_submit_button("Submit review")
 
     if submit:
         save_review({
@@ -247,10 +262,10 @@ with col2:
             "Highlight": highlight
         })
 
-        st.success("🌟 Review submitted. Thank you!")
+        st.success("Review submitted.")
         st.session_state.current_article = None
         st.rerun()
 
-    if st.button("Skip Article"):
+    if st.button("Skip article"):
         st.session_state.current_article = random.choice(available_articles)
         st.rerun()
