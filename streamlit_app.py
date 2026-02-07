@@ -3,6 +3,7 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 import random
+from collections import Counter
 
 load_dotenv()
 
@@ -50,6 +51,20 @@ def save_review(data):
     requests.post(REVIEWS_URL, headers=HEADERS, json={"fields": data})
 
 
+# ---------- LEADERBOARD ----------
+def get_reviewer_leaderboard(top_n=10):
+    reviews = fetch_all_records(REVIEWS_URL)
+
+    reviewer_ids = [
+        r["fields"].get("Reviewer ID")
+        for r in reviews
+        if r.get("fields", {}).get("Reviewer ID")
+    ]
+
+    counts = Counter(reviewer_ids)
+    return counts.most_common(top_n)
+
+
 # ---------- SESSION STATE ----------
 if "reviewer_id" not in st.session_state:
     st.session_state.reviewer_id = ""
@@ -95,6 +110,17 @@ st.sidebar.metric("Articles left for you", remaining_count)
 
 progress = reviewed_count / total_articles if total_articles else 0
 st.sidebar.progress(progress, text=f"Progress: {reviewed_count}/{total_articles}")
+
+st.sidebar.markdown("### 🏆 Top Reviewers")
+
+leaderboard = get_reviewer_leaderboard(top_n=10)
+
+if leaderboard:
+    for rank, (rid, count) in enumerate(leaderboard, start=1):
+        suffix = " ← you" if rid == st.session_state.reviewer_id else ""
+        st.sidebar.write(f"{rank}. **{rid}** – {count} reviews{suffix}")
+else:
+    st.sidebar.caption("No reviews yet. Be the first 🧠")
 
 st.sidebar.markdown("### 🧭 Rating Guide")
 st.sidebar.markdown("""
