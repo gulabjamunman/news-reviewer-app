@@ -13,7 +13,10 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ---------- SESSION STATE ----------
 if "reviewer_id" not in st.session_state:
-    st.session_state.reviewer_id = ""
+    st.session_state.reviewer_id = None  # UUID
+
+if "reviewer_name" not in st.session_state:
+    st.session_state.reviewer_name = ""
 
 if "current_article" not in st.session_state:
     st.session_state.current_article = None
@@ -30,10 +33,34 @@ Then rate how it *felt*, not whether you agree with it.
 There are no right or wrong answers. We are comparing human perception with AI interpretation.
 """)
 
-reviewer_input = st.text_input("Reviewer ID", value=st.session_state.reviewer_id)
+# ---------- REVIEWER AUTH ----------
+reviewer_input = st.text_input(
+    "Your name",
+    value=st.session_state.reviewer_name
+)
+
+def get_reviewer_uuid_by_name(name):
+    res = supabase.table("reviewers") \
+        .select("id") \
+        .eq("name", name) \
+        .eq("active", True) \
+        .limit(1) \
+        .execute()
+
+    if not res.data:
+        return None
+
+    return res.data[0]["id"]
 
 if reviewer_input:
-    st.session_state.reviewer_id = reviewer_input
+    reviewer_uuid = get_reviewer_uuid_by_name(reviewer_input)
+
+    if not reviewer_uuid:
+        st.error("Name not found or inactive. Please check and try again.")
+        st.stop()
+
+    st.session_state.reviewer_name = reviewer_input
+    st.session_state.reviewer_id = reviewer_uuid
 else:
     st.stop()
 
@@ -164,7 +191,7 @@ with col2:
 
     if submit:
         save_review({
-            "reviewer_id": st.session_state.reviewer_id,
+            "reviewer_id": st.session_state.reviewer_id,  # UUID
             "article_id": article_id,
             "political": political,
             "intensity": intensity,
